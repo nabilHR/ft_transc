@@ -51,7 +51,7 @@ ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'localhost:8000', 'localhost:6000']
 # Application definition
 
 INSTALLED_APPS = [
-    "friendship",
+    'friendship',
     'django.contrib.admin',
     'django.contrib.sites',
     'django_otp',

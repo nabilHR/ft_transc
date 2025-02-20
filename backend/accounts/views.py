@@ -271,30 +271,164 @@ class FriendListView(APIView):
 
         friend_data = [{"id": friend.id, "username": friend.username} for friend in friends]
         return Response({"friends": friend_data})
-    
+
+from friendship.models import FriendshipRequest
+
+class ReceiveFriendRequestListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user 
+        receiveRequest = FriendshipRequest.objects.filter(to_user=user)
+        print(f"receive request: {receiveRequest}")
+        request_id  = -1
+        for request in receiveRequest:
+            request_id = request.id
+            print(f"request ID: {request_id}")
+            print(f"receive from: {request.from_user}")
+        return Response({"friends": "nice","Request ID": request_id},status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class SentFriendRequestListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        sent_requests = FriendshipRequest.objects.filter(from_user=user)
+        print(f"receive request: {sent_requests}")
+        for request in sent_requests:
+            print(f"sent request to: {request.to_user}")
+        return Response({"friends": "nice"})
 
 
-# from django.views.decorators.csrf import csrf_exempt
-# @csrf_exempt
+class RespondFriendRequestView(APIView):
+
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        try:
+            requestID = request.data.get('requestID')
+            print("request ID" ,requestID )
+            action = request.data.get('action')
+            print("action " ,action)
+            if not requestID or not action:
+                return Response({"error": "requestID or action is required"}, status=status.HTTP_400_BAD_REQUEST)
+            if action not in ["accept", "reject"]:
+                return Response({"error": "Invalid action. Must be 'accept' or 'reject'"}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                friendRequest = FriendshipRequest.objects.get(pk=requestID)
+                print("friendRequest ",friendRequest)
+            except FriendshipRequest.DoesNotExist:
+                return Response({"error": "Friend request not found"}, status=status.HTTP_404_NOT_FOUND)
+            if friendRequest.to_user != request.user:
+                return Response({"error": "You are not authorized to accept this request"}, status=status.HTTP_403_FORBIDDEN)
+            if action == "accept":
+                print("i m here")
+                friend1 = Friend.objects.create(from_user_id=friendRequest.from_user_id, to_user_id=friendRequest.to_user_id)
+                friendRequest.delete()
+                print("friend1", friend1)
+                return Response({"message": "Friend request accepted"}, status=status.HTTP_200_OK)
+
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 class send_friend_request(APIView):
-        
+    permission_classes = [IsAuthenticated]
     def post(self,request):
         from_user = request.user
         print("request " , request.data)
-        email = request.data.get('email')  #
+        email = request.data.get('email')
         to_user = User.objects.get(email = email)
         print("user: " , to_user)
         if Friend.objects.are_friends(from_user, to_user): 
             return  Response({"they are all ready friend"})
         if FriendshipRequest.objects.filter(from_user=from_user, to_user=to_user,  rejected__isnull=True).exists() or \
             FriendshipRequest.objects.filter(from_user=to_user, to_user=from_user, rejected__isnull=True).exists():
-            return Response( {"the invitation already exist"})
+            return Response({"the invitation already exist"})
         print(from_user, "   ",to_user)
         if from_user != to_user:
             print("im here 111") 
-            friendship_request = friendship_request.objects.create(from_user=from_user, to_user=to_user)
+            friendship_request = FriendshipRequest.objects.create(from_user=from_user, to_user=to_user)
             friendship_request.save() 
 
         return  Response({"the invitation sent successfully"})
 
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from django.apps import apps
 
+
+# class ModelListView(APIView):
+#     def get(self, request):
+#         model_names = []
+#         for app_config in apps.get_app_configs():
+#             for model in app_config.get_models():
+#                 model_names.append(model._meta.model_name)
+#         return Response({"models": model_names})
+class MyModelDeleteAllView(APIView):
+    def delete(self, request, format=None):
+        try:
+            deleted_count = User.objects.all().delete()
+
+            if deleted_count[0] > 0: # Check if any objects were actually deleted
+                return Response(
+                    {"message": f"{deleted_count[0]} objects deleted successfully."},
+                    status=status.HTTP_204_NO_CONTENT,  # 204 No Content is common for DELETE
+                )
+            else:
+                return Response(
+                    {"message": "No objects to delete."},
+                    status=status.HTTP_204_NO_CONTENT,  # Or 404 Not Found if you expect objects to exist
+                )
+
+        except Exception as e:  # Handle potential errors
+            return Response(
+                {"error": str(e)},  # Log the error for debugging!
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class ModelManagementView(APIView):
+    def get(self, request):
+        model_names = []
+        for app_config in apps.get_app_configs():
+            for model in app_config.get_models():
+                model_names.append(model._meta.model_name)
+        return Response({"models": model_names})
+
+    def delete(self, request):
+        try:
+            app_label = request.data.get('app_label')  # Get app label from request
+            model_name = request.data.get('model_name') # Get model name from request
+
+            if not app_label or not model_name:
+                return Response(
+                    {"error": "Both 'app_label' and 'model_name' are required."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                model = apps.get_model(app_label, model_name)  # Get the model
+            except LookupError:
+                return Response(
+                    {"error": f"Model '{model_name}' not found in app '{app_label}'."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            deleted_count = model.objects.all().delete()
+
+            if deleted_count[0] > 0:
+                return Response(
+                    {"message": f"{deleted_count[0]} objects from {model_name} deleted successfully."},
+                    status=status.HTTP_204_NO_CONTENT,
+                )
+            else:
+                return Response(
+                    {"message": f"No objects found to delete in {model_name}."},
+                    status=status.HTTP_204_NO_CONTENT,  # Or 404 if you expect objects
+                )
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)},  # Log the error for debugging!
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
